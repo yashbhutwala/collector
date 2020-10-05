@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/pganalyze/collector/grant"
@@ -130,13 +131,39 @@ func handleLogAnalysis(analyzableLogLines []state.LogLine) ([]state.LogLine, []s
 }
 
 func stitchLogLines(readyLogLines []state.LogLine) (analyzableLogLines []state.LogLine) {
+	var linesToAppend []*string
+	var linesToAppendLenSum int
 	for _, logLine := range readyLogLines {
 		if logLine.LogLevel != pganalyze_collector.LogLineInformation_UNKNOWN {
+			if linesToAppendLenSum > 0 {
+				var b strings.Builder
+				b.WriteString(analyzableLogLines[len(analyzableLogLines)-1].Content)
+				b.Grow(linesToAppendLenSum)
+				for _, lineRef := range linesToAppend {
+					b.WriteString(*lineRef)
+				}
+				analyzableLogLines[len(analyzableLogLines)-1].Content = b.String()
+				analyzableLogLines[len(analyzableLogLines)-1].ByteEnd += int64(linesToAppendLenSum)
+				linesToAppend = nil
+				linesToAppendLenSum = 0
+			}
 			analyzableLogLines = append(analyzableLogLines, logLine)
 		} else if len(analyzableLogLines) > 0 {
-			analyzableLogLines[len(analyzableLogLines)-1].Content += logLine.Content
-			analyzableLogLines[len(analyzableLogLines)-1].ByteEnd += int64(len(logLine.Content))
+			linesToAppend = append(linesToAppend, &logLine.Content)
+			linesToAppendLenSum = linesToAppendLenSum + len(logLine.Content)
 		}
+	}
+	if linesToAppendLenSum > 0 {
+		var b strings.Builder
+		b.WriteString(analyzableLogLines[len(analyzableLogLines)-1].Content)
+		b.Grow(linesToAppendLenSum)
+		for _, lineRef := range linesToAppend {
+			b.WriteString(*lineRef)
+		}
+		analyzableLogLines[len(analyzableLogLines)-1].Content = b.String()
+		analyzableLogLines[len(analyzableLogLines)-1].ByteEnd += int64(linesToAppendLenSum)
+		linesToAppend = nil
+		linesToAppendLenSum = 0
 	}
 	return
 }
